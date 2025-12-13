@@ -120,3 +120,6 @@ app.listen(PORT, () => {
 
 // Export jobs ONLY if needed later
 module.exports = { jobs };
+
+// Start BullMQ worker in same process (Render free plan)
+require("./queueWorker");
