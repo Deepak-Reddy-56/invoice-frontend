@@ -13,40 +13,85 @@ const connection = new Redis(process.env.REDIS_URL, {
 });
 
 // -----------------------------
+// Helper to run Python safely
+// -----------------------------
+function runPython(script, args) {
+  return new Promise((resolve, reject) => {
+    const python = spawn("python", [script, ...args], {
+      cwd: __dirname,
+    });
+
+    python.stdout.on("data", (data) => {
+      console.log(`Python: ${data}`);
+    });
+
+    python.stderr.on("data", (data) => {
+      console.error(`Python error: ${data}`);
+    });
+
+    python.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${script} failed with code ${code}`));
+    });
+  });
+}
+
+// -----------------------------
 // BullMQ Worker
 // -----------------------------
 const worker = new Worker(
   "pdf-processing",
   async (job) => {
-    const { jobId, filePath } = job.data;
-    console.log("Worker processing:", jobId);
+    console.log("Worker processing job:", job.name);
 
-    const outputExcel = path.join("results", `result-${jobId}.xlsx`);
+    // -------------------------
+    // SINGLE PDF JOB
+    // -------------------------
+    if (job.name === "processPDF") {
+      const { jobId, filePath } = job.data;
 
-    return new Promise((resolve, reject) => {
-      const python = spawn("python", [
-        "worker.py",
+      const outputExcel = path.join(
+        "results",
+        `result-${jobId}.xlsx`
+      );
+
+      await runPython("worker.py", [
         filePath,
         outputExcel,
       ]);
 
-      python.stdout.on("data", (data) => {
-        console.log(`Python: ${data}`);
-      });
+      return { resultPath: outputExcel };
+    }
 
-      python.stderr.on("data", (data) => {
-        console.error(`Python error: ${data}`);
-      });
+    // -------------------------
+    // 🔥 BATCH PDF JOB
+    // -------------------------
+    if (job.name === "processPDFBatch") {
+      const { jobId, filePaths } = job.data;
 
-      python.on("close", (code) => {
-        if (code === 0) {
-          console.log("Job completed:", outputExcel);
-          resolve({ excel: outputExcel });
-        } else {
-          reject(new Error("Python process failed"));
-        }
-      });
-    });
+      const batchExcel = path.join(
+        "results",
+        `batch-${jobId}.xlsx`
+      );
+
+      // Ensure results directory exists
+      if (!fs.existsSync("results")) {
+        fs.mkdirSync("results");
+      }
+
+      // Call batch Python worker
+      await runPython("batch_worker.py", [
+        batchExcel,
+        ...filePaths,
+      ]);
+
+      return {
+        resultPath: batchExcel,
+        count: filePaths.length,
+      };
+    }
+
+    throw new Error(`Unknown job type: ${job.name}`);
   },
   { connection }
 );
