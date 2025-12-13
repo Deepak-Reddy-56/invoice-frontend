@@ -1,56 +1,63 @@
+import sys
 import os
-from openpyxl import Workbook
-from worker import extract_invoice_data
+from openpyxl import Workbook, load_workbook
 
+# --------------------------------------------------
+# IMPORT YOUR EXISTING EXTRACTION FUNCTION
+# --------------------------------------------------
+from worker import extract_invoice_data  
+# extract_invoice_data(pdf_path) -> dict
 
-UPLOAD_DIR = "uploads"
-OUTPUT_EXCEL = "results/invoices.xlsx"
+# --------------------------------------------------
+# Arguments
+# --------------------------------------------------
+if len(sys.argv) < 3:
+    print("Usage: python batch_worker.py output.xlsx pdf1.pdf pdf2.pdf ...")
+    sys.exit(1)
 
+output_excel = sys.argv[1]
+pdf_files = sys.argv[2:]
 
-def run_batch():
+# --------------------------------------------------
+# Create or load Excel
+# --------------------------------------------------
+if os.path.exists(output_excel):
+    wb = load_workbook(output_excel)
+    ws = wb.active
+else:
     wb = Workbook()
     ws = wb.active
-    ws.title = "Invoices"
 
-    # Header (written ONCE)
+    # HEADER ROW (WRITE ONCE)
     ws.append([
-        "SN",
-        "Invoice No & Dt",
-        "Buyers Name & Address",
-        "Invoice value",
-        "Exchange Rate",
-        "Source File"
+        "Invoice No & Date",
+        "Buyer Name & Address",
+        "Invoice Value",
+        "Exchange Rate"
     ])
 
-    sn = 1
+# --------------------------------------------------
+# Process each PDF
+# --------------------------------------------------
+for pdf_path in pdf_files:
+    try:
+        print(f"Processing: {pdf_path}")
 
-    for filename in sorted(os.listdir(UPLOAD_DIR)):
-        if not filename.lower().endswith(".pdf"):
-            continue
+        data = extract_invoice_data(pdf_path)
 
-        pdf_path = os.path.join(UPLOAD_DIR, filename)
-        print(f"Processing: {filename}")
+        ws.append([
+            data.get("invoice_no_date", ""),
+            data.get("buyer", ""),
+            data.get("invoice_value", ""),
+            data.get("exchange_rate", ""),
+        ])
 
-        try:
-            invoice_no_dt, buyer, value, rate = extract_invoice_data(pdf_path)
+    except Exception as e:
+        print(f"ERROR processing {pdf_path}: {e}")
 
-            ws.append([
-                sn,
-                invoice_no_dt,
-                buyer,
-                value,
-                rate,
-                filename
-            ])
+# --------------------------------------------------
+# Save Excel
+# --------------------------------------------------
+wb.save(output_excel)
 
-            sn += 1
-
-        except Exception as e:
-            print(f"❌ Failed: {filename} | {e}")
-
-    wb.save(OUTPUT_EXCEL)
-    print(f"\n✅ DONE — Excel created at: {OUTPUT_EXCEL}")
-
-
-if __name__ == "__main__":
-    run_batch()
+print(f"Batch Excel created: {output_excel}")

@@ -4,6 +4,9 @@ import pdfplumber
 from openpyxl import Workbook
 
 
+# ==================================================
+# CORE EXTRACTION FUNCTION
+# ==================================================
 def extract_invoice_data(pdf_path):
     invoice_no_dt = ""
     buyer_address = ""
@@ -23,7 +26,10 @@ def extract_invoice_data(pdf_path):
         # --------------------------------------------------
         # 1. INVOICE NO & DATE
         # --------------------------------------------------
-        inv_match = re.search(r"(EXP-\d+\s+\d{2}/\d{2}/\d{4})", flat_text)
+        inv_match = re.search(
+            r"(EXP-\d+\s+\d{2}/\d{2}/\d{4})",
+            flat_text
+        )
         if inv_match:
             invoice_no_dt = inv_match.group(1)
 
@@ -47,15 +53,15 @@ def extract_invoice_data(pdf_path):
             if not line:
                 continue
 
-            # Skip headers only
+            # Skip headers / noise
             if "BUYER" in line.upper():
                 continue
             if "AEO" in line.upper():
                 continue
 
-            # --- CLEAN EXTRACTION NOISE (SAFE) ---
+            # Cleanup OCR noise
             line = line.replace("OFPFICE", "OFFICE")
-            line = re.sub(r"\bC$", "", line)     # trailing junk C
+            line = re.sub(r"\bC$", "", line)
             line = re.sub(r"\s{2,}", " ", line)
 
             buyer_lines.append(line)
@@ -87,9 +93,20 @@ def extract_invoice_data(pdf_path):
                     if cell and "EUR" in cell and "INR" in cell:
                         exchange_rate = cell.strip()
 
-    return invoice_no_dt, buyer_address, invoice_value, exchange_rate
+    # --------------------------------------------------
+    # RETURN AS DICTIONARY (CRITICAL FOR BATCH MODE)
+    # --------------------------------------------------
+    return {
+        "invoice_no_date": invoice_no_dt,
+        "buyer": buyer_address,
+        "invoice_value": invoice_value,
+        "exchange_rate": exchange_rate,
+    }
 
 
+# ==================================================
+# SINGLE PDF → EXCEL WRITER
+# ==================================================
 def write_excel(output_path, data):
     wb = Workbook()
     ws = wb.active
@@ -99,21 +116,24 @@ def write_excel(output_path, data):
         "SN",
         "Invoice No & Dt",
         "Buyers Name & Address",
-        "Invoice value",
+        "Invoice Value",
         "Exchange Rate"
     ])
 
     ws.append([
         1,
-        data[0],
-        data[1],
-        data[2],
-        data[3]
+        data["invoice_no_date"],
+        data["buyer"],
+        data["invoice_value"],
+        data["exchange_rate"],
     ])
 
     wb.save(output_path)
 
 
+# ==================================================
+# CLI ENTRYPOINT (USED BY queueWorker.js)
+# ==================================================
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("Usage: python worker.py <input.pdf> <output.xlsx>")
@@ -125,7 +145,7 @@ if __name__ == "__main__":
     data = extract_invoice_data(pdf_path)
     write_excel(output_excel, data)
 
-    print("Invoice No & Dt:", data[0])
-    print("Buyer:", data[1])
-    print("Invoice Value:", data[2])
-    print("Exchange Rate:", data[3])
+    print("Invoice No & Dt:", data["invoice_no_date"])
+    print("Buyer:", data["buyer"])
+    print("Invoice Value:", data["invoice_value"])
+    print("Exchange Rate:", data["exchange_rate"])
