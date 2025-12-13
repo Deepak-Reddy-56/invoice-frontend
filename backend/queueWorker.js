@@ -3,8 +3,6 @@ const Redis = require("ioredis");
 const { exec } = require("child_process");
 const fs = require("fs");
 
-const Redis = require("ioredis");
-
 const connection = new Redis(process.env.REDIS_URL, {
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
