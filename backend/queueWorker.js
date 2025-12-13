@@ -3,12 +3,13 @@ const Redis = require("ioredis");
 const { exec } = require("child_process");
 const fs = require("fs");
 
-const redisConnection = new Redis({
-  host: "127.0.0.1",
-  port: 6379,
+const Redis = require("ioredis");
+
+const connection = new Redis(process.env.REDIS_URL, {
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
 });
+
 
 const jobs = require("./server").jobs; // We'll connect this later if needed
 

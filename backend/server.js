@@ -17,12 +17,13 @@ app.use("/results", express.static("results"));
 // --------------------------------------------------
 // Redis connection
 // --------------------------------------------------
-const redisConnection = new Redis({
-  host: "127.0.0.1",
-  port: 6379,
+const Redis = require("ioredis");
+
+const redisConnection = new Redis(process.env.REDIS_URL, {
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
 });
+
 
 // --------------------------------------------------
 // Job queue (EXISTING – untouched)
