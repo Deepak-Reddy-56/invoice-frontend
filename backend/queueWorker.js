@@ -1,45 +1,54 @@
 const { Worker } = require("bullmq");
 const Redis = require("ioredis");
-const { exec } = require("child_process");
+const { spawn } = require("child_process");
+const path = require("path");
 const fs = require("fs");
 
+// -----------------------------
+// Redis connection
+// -----------------------------
 const connection = new Redis(process.env.REDIS_URL, {
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
 });
 
-
-const jobs = require("./server").jobs; // We'll connect this later if needed
-
+// -----------------------------
+// BullMQ Worker
+// -----------------------------
 const worker = new Worker(
   "pdf-processing",
   async (job) => {
     const { jobId, filePath } = job.data;
     console.log("Worker processing:", jobId);
 
-    const outputExcel = `results/result-${jobId}.xlsx`;
+    const outputExcel = path.join("results", `result-${jobId}.xlsx`);
 
     return new Promise((resolve, reject) => {
-      const cmd = `python worker.py "${filePath}" "${outputExcel}"`;
+      const python = spawn("python", [
+        "worker.py",
+        filePath,
+        outputExcel,
+      ]);
 
-      exec(cmd, (error, stdout, stderr) => {
-        if (error) {
-          console.log("Python Error:", stderr);
-          reject(error);
-        } else {
-          console.log("Python Output:", stdout);
+      python.stdout.on("data", (data) => {
+        console.log(`Python: ${data}`);
+      });
 
-          // Save job result path to shared store
-          fs.appendFileSync("worker-log.txt", `Completed ${jobId}\n`);
+      python.stderr.on("data", (data) => {
+        console.error(`Python error: ${data}`);
+      });
 
+      python.on("close", (code) => {
+        if (code === 0) {
+          console.log("Job completed:", outputExcel);
           resolve({ excel: outputExcel });
+        } else {
+          reject(new Error("Python process failed"));
         }
       });
     });
   },
-  {
-    connection: redisConnection,
-  }
+  { connection }
 );
 
 console.log("Queue Worker Started...");
