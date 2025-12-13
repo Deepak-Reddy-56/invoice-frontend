@@ -10,7 +10,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Serve result files
+// --------------------------------------------------
+// Serve generated result files
+// --------------------------------------------------
 app.use("/results", express.static(path.join(__dirname, "results")));
 
 // --------------------------------------------------
@@ -43,25 +45,30 @@ if (!fs.existsSync(RESULT_DIR)) fs.mkdirSync(RESULT_DIR);
 const upload = multer({
   storage: multer.diskStorage({
     destination: UPLOAD_DIR,
-    filename: (_, file, cb) =>
-      cb(null, `${Date.now()}-${file.originalname}`),
+    filename: (_, file, cb) => {
+      cb(null, `${Date.now()}-${file.originalname}`);
+    },
   }),
 });
 
 // --------------------------------------------------
-// TEMP job tracking (OK for now)
+// In-memory job tracking (OK for Render Free)
 // --------------------------------------------------
 const jobs = {};
+// jobs[jobId] = { status, resultPath }
 
 // ==================================================
-// SINGLE PDF (UNCHANGED)
+// SINGLE PDF FLOW (UNCHANGED)
 // ==================================================
 app.post("/api/upload", upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
   const jobId = Date.now().toString();
 
-  jobs[jobId] = { status: "queued", resultPath: null };
+  jobs[jobId] = {
+    status: "queued",
+    resultPath: null,
+  };
 
   await pdfQueue.add("processPDF", {
     jobId,
@@ -80,9 +87,12 @@ app.post("/api/upload-batch", upload.array("files"), async (req, res) => {
   }
 
   const jobId = Date.now().toString();
-  const filePaths = req.files.map(f => f.path);
+  const filePaths = req.files.map((f) => f.path);
 
-  jobs[jobId] = { status: "queued", resultPath: null };
+  jobs[jobId] = {
+    status: "queued",
+    resultPath: null,
+  };
 
   await pdfQueue.add("processPDFBatch", {
     jobId,
@@ -96,11 +106,13 @@ app.post("/api/upload-batch", upload.array("files"), async (req, res) => {
 });
 
 // ==================================================
-// JOB STATUS
+// JOB STATUS (USED BY FRONTEND POLLING)
 // ==================================================
 app.get("/api/status/:jobId", (req, res) => {
   const job = jobs[req.params.jobId];
-  if (!job) return res.json({ error: "Invalid job ID" });
+  if (!job) {
+    return res.json({ error: "Invalid job ID" });
+  }
 
   res.json({
     status: job.status,
@@ -118,8 +130,12 @@ app.listen(PORT, () => {
   console.log(`Backend running on port ${PORT}`);
 });
 
-// Export jobs ONLY if needed later
+// --------------------------------------------------
+// Export jobs for queueWorker to update
+// --------------------------------------------------
 module.exports = { jobs };
 
-// Start BullMQ worker in same process (Render free plan)
+// --------------------------------------------------
+// Start BullMQ worker in same process (Render Free)
+// --------------------------------------------------
 require("./queueWorker");
