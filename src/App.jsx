@@ -1,9 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+
+const API = import.meta.env.VITE_API_BASE;
 
 function App() {
   const [files, setFiles] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
   const [status, setStatus] = useState("");
+  const [jobId, setJobId] = useState(null);
+  const [downloadUrl, setDownloadUrl] = useState(null);
 
   // -------------------------------
   // Drag & Drop handlers
@@ -29,7 +33,7 @@ function App() {
   };
 
   // -------------------------------
-  // Upload PDFs
+  // Upload PDFs (starts processing automatically)
   // -------------------------------
   const handleUpload = async () => {
     if (files.length === 0) {
@@ -41,15 +45,17 @@ function App() {
     files.forEach((file) => formData.append("files", file));
 
     setStatus("Uploading PDFs...");
+    setDownloadUrl(null);
 
     try {
-      const res = await fetch("http://localhost:4000/api/upload-batch", {
+      const res = await fetch(`${API}/api/upload-batch`, {
         method: "POST",
         body: formData,
       });
 
       const data = await res.json();
-      setStatus(`Uploaded ${data.count} PDFs successfully`);
+      setJobId(data.jobId);
+      setStatus(`Uploaded ${data.count} PDFs. Processing started...`);
     } catch (err) {
       console.error(err);
       setStatus("Upload failed");
@@ -57,28 +63,31 @@ function App() {
   };
 
   // -------------------------------
-  // Process PDFs
+  // Poll job status
   // -------------------------------
-  const handleProcess = async () => {
-    setStatus("Processing PDFs (this may take a few minutes)...");
+  useEffect(() => {
+    if (!jobId) return;
 
-    try {
-      await fetch("http://localhost:4000/api/process-batch", {
-        method: "POST",
-      });
-      setStatus("Processing completed. Ready to download.");
-    } catch (err) {
-      console.error(err);
-      setStatus("Processing failed");
-    }
-  };
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API}/api/status/${jobId}`);
+        const data = await res.json();
 
-  // -------------------------------
-  // Download Excel
-  // -------------------------------
-  const handleDownload = () => {
-    window.location.href = "http://localhost:4000/api/download-excel";
-  };
+        if (data.resultUrl) {
+          setDownloadUrl(`${API}${data.resultUrl}`);
+          setStatus("Processing completed. Ready to download.");
+          clearInterval(interval);
+        } else {
+          setStatus("Processing PDFs... please wait");
+        }
+      } catch (err) {
+        console.error(err);
+        setStatus("Error checking status");
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [jobId]);
 
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center">
@@ -133,22 +142,18 @@ function App() {
           onClick={handleUpload}
           className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded mb-3"
         >
-          Upload PDFs
+          Upload & Process PDFs
         </button>
 
-        <button
-          onClick={handleProcess}
-          className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded mb-3"
-        >
-          Process PDFs
-        </button>
-
-        <button
-          onClick={handleDownload}
-          className="w-full bg-black hover:bg-gray-800 text-white py-2 rounded"
-        >
-          Download Excel
-        </button>
+        {downloadUrl && (
+          <a
+            href={downloadUrl}
+            target="_blank"
+            className="block w-full text-center bg-black hover:bg-gray-800 text-white py-2 rounded mb-3"
+          >
+            Download Excel
+          </a>
+        )}
 
         <p className="mt-4 text-center text-sm text-gray-600">
           {status}
