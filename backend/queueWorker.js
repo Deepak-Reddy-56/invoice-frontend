@@ -4,6 +4,9 @@ const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 
+// 🔥 IMPORT SHARED JOB STORE
+const { jobs } = require("./server");
+
 // -----------------------------
 // Redis connection
 // -----------------------------
@@ -39,7 +42,7 @@ function runPython(script, args) {
 // -----------------------------
 // BullMQ Worker
 // -----------------------------
-const worker = new Worker(
+new Worker(
   "pdf-processing",
   async (job) => {
     console.log("Worker processing job:", job.name);
@@ -60,6 +63,12 @@ const worker = new Worker(
         outputExcel,
       ]);
 
+      // 🔥 UPDATE JOB STATUS
+      if (jobs[jobId]) {
+        jobs[jobId].status = "completed";
+        jobs[jobId].resultPath = outputExcel;
+      }
+
       return { resultPath: outputExcel };
     }
 
@@ -79,11 +88,19 @@ const worker = new Worker(
         fs.mkdirSync("results");
       }
 
-      // Call batch Python worker
+      // Run batch Python worker
       await runPython("batch_worker.py", [
         batchExcel,
         ...filePaths,
       ]);
+
+      // 🔥 UPDATE JOB STATUS (THIS WAS MISSING)
+      if (jobs[jobId]) {
+        jobs[jobId].status = "completed";
+        jobs[jobId].resultPath = batchExcel;
+      }
+
+      console.log("Batch Excel created:", batchExcel);
 
       return {
         resultPath: batchExcel,
