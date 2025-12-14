@@ -3,7 +3,7 @@ const multer = require("multer");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
-const { Queue } = require("bullmq");
+const { Queue, QueueEvents } = require("bullmq");
 const Redis = require("ioredis");
 
 const app = express();
@@ -26,7 +26,14 @@ const redisConnection = new Redis(process.env.REDIS_URL, {
 // --------------------------------------------------
 // BullMQ Queue
 // --------------------------------------------------
-const pdfQueue = new Queue("pdf-processing", {
+const QUEUE_NAME = "pdf-processing";
+
+const pdfQueue = new Queue(QUEUE_NAME, {
+  connection: redisConnection,
+});
+
+// 🔥 THIS IS THE MISSING PIECE
+const queueEvents = new QueueEvents(QUEUE_NAME, {
   connection: redisConnection,
 });
 
@@ -84,7 +91,7 @@ app.post("/api/upload-batch", upload.array("files"), async (req, res) => {
   }
 
   const jobId = Date.now().toString();
-  const filePaths = req.files.map(f => f.path);
+  const filePaths = req.files.map((f) => f.path);
 
   jobs[jobId] = { status: "queued", resultPath: null };
 
@@ -115,17 +122,26 @@ app.get("/api/status/:jobId", (req, res) => {
 });
 
 // ==================================================
-// 🔥 LISTEN FOR WORKER COMPLETION (THIS WAS MISSING)
+// 🔥 CORRECT JOB COMPLETION LISTENER
 // ==================================================
-pdfQueue.on("completed", (job, result) => {
-  const { jobId } = job.data;
+queueEvents.on("completed", ({ jobId, returnvalue }) => {
+  // find the matching job entry
+  const entry = Object.entries(jobs).find(
+    ([, v]) => v.status === "queued"
+  );
 
-  if (jobs[jobId]) {
-    jobs[jobId].status = "completed";
-    jobs[jobId].resultPath = result.resultPath;
-  }
+  if (!entry) return;
 
-  console.log("Job completed:", jobId, result.resultPath);
+  const [localJobId, job] = entry;
+
+  job.status = "completed";
+  job.resultPath = returnvalue.resultPath;
+
+  console.log(
+    "Job completed:",
+    localJobId,
+    returnvalue.resultPath
+  );
 });
 
 // --------------------------------------------------
