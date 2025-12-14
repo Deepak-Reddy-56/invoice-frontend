@@ -52,23 +52,20 @@ const upload = multer({
 });
 
 // --------------------------------------------------
-// In-memory job tracking (OK for Render Free)
+// In-memory job tracking (Render Free safe)
 // --------------------------------------------------
 const jobs = {};
 // jobs[jobId] = { status, resultPath }
 
 // ==================================================
-// SINGLE PDF FLOW (UNCHANGED)
+// SINGLE PDF
 // ==================================================
 app.post("/api/upload", upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
   const jobId = Date.now().toString();
 
-  jobs[jobId] = {
-    status: "queued",
-    resultPath: null,
-  };
+  jobs[jobId] = { status: "queued", resultPath: null };
 
   await pdfQueue.add("processPDF", {
     jobId,
@@ -79,7 +76,7 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
 });
 
 // ==================================================
-// 🔥 BATCH PDF UPLOAD (1000–1500 PDFs)
+// 🔥 BATCH PDF UPLOAD
 // ==================================================
 app.post("/api/upload-batch", upload.array("files"), async (req, res) => {
   if (!req.files || req.files.length === 0) {
@@ -87,12 +84,9 @@ app.post("/api/upload-batch", upload.array("files"), async (req, res) => {
   }
 
   const jobId = Date.now().toString();
-  const filePaths = req.files.map((f) => f.path);
+  const filePaths = req.files.map(f => f.path);
 
-  jobs[jobId] = {
-    status: "queued",
-    resultPath: null,
-  };
+  jobs[jobId] = { status: "queued", resultPath: null };
 
   await pdfQueue.add("processPDFBatch", {
     jobId,
@@ -106,13 +100,11 @@ app.post("/api/upload-batch", upload.array("files"), async (req, res) => {
 });
 
 // ==================================================
-// JOB STATUS (USED BY FRONTEND POLLING)
+// JOB STATUS (FRONTEND POLLING)
 // ==================================================
 app.get("/api/status/:jobId", (req, res) => {
   const job = jobs[req.params.jobId];
-  if (!job) {
-    return res.json({ error: "Invalid job ID" });
-  }
+  if (!job) return res.json({ error: "Invalid job ID" });
 
   res.json({
     status: job.status,
@@ -120,6 +112,20 @@ app.get("/api/status/:jobId", (req, res) => {
       ? `/results/${path.basename(job.resultPath)}`
       : null,
   });
+});
+
+// ==================================================
+// 🔥 LISTEN FOR WORKER COMPLETION (THIS WAS MISSING)
+// ==================================================
+pdfQueue.on("completed", (job, result) => {
+  const { jobId } = job.data;
+
+  if (jobs[jobId]) {
+    jobs[jobId].status = "completed";
+    jobs[jobId].resultPath = result.resultPath;
+  }
+
+  console.log("Job completed:", jobId, result.resultPath);
 });
 
 // --------------------------------------------------
@@ -131,11 +137,6 @@ app.listen(PORT, () => {
 });
 
 // --------------------------------------------------
-// Export jobs for queueWorker to update
-// --------------------------------------------------
-module.exports = { jobs };
-
-// --------------------------------------------------
-// Start BullMQ worker in same process (Render Free)
+// Start worker in same process (Render Free)
 // --------------------------------------------------
 require("./queueWorker");

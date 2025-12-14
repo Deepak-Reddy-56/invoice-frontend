@@ -4,11 +4,8 @@ const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 
-// 🔥 IMPORT SHARED JOB STORE (same process as server.js)
-const { jobs } = require("./server");
-
 // --------------------------------------------------
-// Redis connection
+// Redis connection (same REDIS_URL as server.js)
 // --------------------------------------------------
 const connection = new Redis(process.env.REDIS_URL, {
   maxRetriesPerRequest: null,
@@ -16,7 +13,7 @@ const connection = new Redis(process.env.REDIS_URL, {
 });
 
 // --------------------------------------------------
-// Helper: run Python script safely
+// Helper to run Python scripts safely
 // --------------------------------------------------
 function runPython(script, args) {
   return new Promise((resolve, reject) => {
@@ -25,36 +22,38 @@ function runPython(script, args) {
     });
 
     python.stdout.on("data", (data) => {
-      console.log(`Python: ${data}`);
+      console.log(`Python: ${data.toString()}`);
     });
 
     python.stderr.on("data", (data) => {
-      console.error(`Python error: ${data}`);
+      console.error(`Python error: ${data.toString()}`);
     });
 
     python.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`${script} failed with exit code ${code}`));
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`${script} failed with exit code ${code}`));
+      }
     });
   });
 }
 
 // --------------------------------------------------
-// BullMQ Worker (SINGLE PROCESS – Render free)
+// BullMQ Worker (Render free plan compatible)
 // --------------------------------------------------
 new Worker(
   "pdf-processing",
   async (job) => {
     console.log("Worker processing job:", job.name);
 
-    // --------------------------------------------------
+    // -------------------------
     // SINGLE PDF JOB
-    // --------------------------------------------------
+    // -------------------------
     if (job.name === "processPDF") {
       const { jobId, filePath } = job.data;
 
       const outputExcel = path.join(
-        __dirname,
         "results",
         `result-${jobId}.xlsx`
       );
@@ -64,44 +63,31 @@ new Worker(
         outputExcel,
       ]);
 
-      // 🔥 Update job state
-      if (jobs[jobId]) {
-        jobs[jobId].status = "completed";
-        jobs[jobId].resultPath = outputExcel;
-      }
-
-      return { resultPath: outputExcel };
+      return {
+        resultPath: outputExcel,
+      };
     }
 
-    // --------------------------------------------------
-    // 🔥 BATCH PDF JOB
-    // --------------------------------------------------
+    // -------------------------
+    // BATCH PDF JOB
+    // -------------------------
     if (job.name === "processPDFBatch") {
       const { jobId, filePaths } = job.data;
 
       const batchExcel = path.join(
-        __dirname,
         "results",
         `batch-${jobId}.xlsx`
       );
 
       // Ensure results directory exists
-      const resultsDir = path.join(__dirname, "results");
-      if (!fs.existsSync(resultsDir)) {
-        fs.mkdirSync(resultsDir);
+      if (!fs.existsSync("results")) {
+        fs.mkdirSync("results");
       }
 
-      // Run batch python worker
       await runPython("batch_worker.py", [
         batchExcel,
         ...filePaths,
       ]);
-
-      // 🔥 Update job state
-      if (jobs[jobId]) {
-        jobs[jobId].status = "completed";
-        jobs[jobId].resultPath = batchExcel;
-      }
 
       console.log("Batch Excel created:", batchExcel);
 
